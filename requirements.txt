@@ -1,16 +1,5 @@
-# Object Detection Web App — Requirements
-# Python 3.12.x
-# Install: pip install -r requirements.txt
-
-flask==3.1.1
+flask==3.1.0
 gunicorn==23.0.0
-ultralytics==8.4.123
+onnxruntime==1.20.1
 opencv-python-headless==4.10.0.84
-numpy==2.5.2
-torch==2.14.0
-torchvision==0.29.0
-Pillow==12.3.0
-requests==2.34.2
-tqdm==4.70.1
-PyYAML==6.0.3
-psutil==7.2.2
+numpy==2.2.3
