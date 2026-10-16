@@ -19,15 +19,21 @@ COCO_CLASSES = [
     'hair drier', 'toothbrush'
 ]
 
-# Generate distinct colors for classes
+# Distinct colors per class for client visualization
 np.random.seed(42)
-COLORS = np.random.randint(0, 255, size=(len(COCO_CLASSES), 3), dtype=np.uint8)
+COLORS = [
+    f"#{r:02x}{g:02x}{b:02x}"
+    for r, g, b in np.random.randint(50, 255, size=(len(COCO_CLASSES), 3))
+]
 
-# Load lightweight ONNX model into ONNX Runtime (uses only ~60MB RAM)
+# Load ONNX model once
 MODEL_PATH = os.environ.get("MODEL_PATH", "yolo11n.onnx")
 opts = ort.SessionOptions()
-opts.intra_op_num_threads = 2
-opts.inter_op_num_threads = 2
+opts.intra_op_num_threads = 1
+opts.inter_op_num_threads = 1
+opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
 session = ort.InferenceSession(MODEL_PATH, opts, providers=['CPUExecutionProvider'])
 input_name = session.get_inputs()[0].name
 output_name = session.get_outputs()[0].name
@@ -39,22 +45,25 @@ def index():
 @app.route("/detect", methods=["POST"])
 def detect():
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data or "image" not in data:
             return jsonify({"error": "No image data received"}), 400
 
-        # Strip base64 header
-        img_data = data["image"].split(",")[1]
-        img_bytes = base64.b64decode(img_data)
+        # Decode base64 JPEG
+        img_str = data["image"]
+        if "," in img_str:
+            img_str = img_str.split(",", 1)[1]
+
+        img_bytes = base64.b64decode(img_str)
         img_array = np.frombuffer(img_bytes, dtype=np.uint8)
         frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
         if frame is None:
-            return jsonify({"error": "Could not decode image"}), 400
+            return jsonify({"error": "Failed to decode frame"}), 400
 
         orig_h, orig_w = frame.shape[:2]
 
-        # Preprocess frame for YOLO (640x640, RGB, normalized)
+        # Resize to YOLO input 640x640
         input_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         input_img = cv2.resize(input_img, (640, 640))
         input_img = input_img.astype(np.float32) / 255.0
@@ -70,56 +79,49 @@ def detect():
         class_ids = np.argmax(classes_scores, axis=1)
         confidences = np.max(classes_scores, axis=1)
 
-        # Confidence filter
+        # Filter by threshold
         mask = confidences > 0.35
         boxes_data = boxes_data[mask]
         confidences = confidences[mask]
         class_ids = class_ids[mask]
 
         boxes = []
-        scale_x = orig_w / 640.0
-        scale_y = orig_h / 640.0
-
         for box in boxes_data:
             cx, cy, bw, bh = box
-            x = int((cx - bw / 2) * scale_x)
-            y = int((cy - bh / 2) * scale_y)
-            w = int(bw * scale_x)
-            h = int(bh * scale_y)
+            # Return normalized coordinates (0..1) so client can scale to any video resolution
+            x = (cx - bw / 2) / 640.0
+            y = (cy - bh / 2) / 640.0
+            w = bw / 640.0
+            h = bh / 640.0
             boxes.append([x, y, w, h])
 
-        indices = cv2.dnn.NMSBoxes(boxes, confidences.tolist(), 0.35, 0.45)
+        # Apply Non-Maximum Suppression
+        indices = []
+        if len(boxes) > 0:
+            # cv2.dnn.NMSBoxes expects pixel coords
+            pixel_boxes = [[int(b[0]*640), int(b[1]*640), int(b[2]*640), int(b[3]*640)] for b in boxes]
+            indices = cv2.dnn.NMSBoxes(pixel_boxes, confidences.tolist(), 0.35, 0.45)
 
         detections = []
         if len(indices) > 0:
             for i in indices.flatten():
-                x, y, w, h = boxes[i]
                 cid = int(class_ids[i])
-                cname = COCO_CLASSES[cid]
                 conf = float(confidences[i])
-                color = [int(c) for c in COLORS[cid]]
+                bx, by, bw, bh = boxes[i]
 
                 detections.append({
-                    "name": cname,
-                    "confidence": round(conf * 100, 1)
+                    "name": COCO_CLASSES[cid],
+                    "confidence": round(conf * 100, 1),
+                    "color": COLORS[cid],
+                    "box": {
+                        "x": max(0.0, float(bx)),
+                        "y": max(0.0, float(by)),
+                        "w": min(1.0, float(bw)),
+                        "h": min(1.0, float(bh))
+                    }
                 })
 
-                # Draw bounding box
-                cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-
-                # Draw label badge
-                label = f"{cname} {round(conf * 100)}%"
-                (lw, lh), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                cv2.rectangle(frame, (x, max(0, y - lh - 6)), (x + lw + 4, max(lh + 6, y)), color, -1)
-                cv2.putText(frame, label, (x + 2, max(lh + 2, y - 3)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-
-        # Encode frame back to JPEG base64
-        _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        img_base64 = base64.b64encode(buffer).decode("utf-8")
-
         return jsonify({
-            "image": f"data:image/jpeg;base64,{img_base64}",
             "detections": detections,
             "count": len(detections)
         })
