@@ -29,3 +29,8 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+
+*.pt
+weights/
+
+yolov8s-worldv2.onnx

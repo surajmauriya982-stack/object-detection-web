@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Object Detection — YOLOv11</title>
+  <title>Electrical Gadget Detection — YOLO-World</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -65,7 +65,6 @@
       justify-content: center;
     }
 
-    /* Direct live video element */
     #webcam {
       width: 100%;
       height: 100%;
@@ -74,7 +73,6 @@
       background: #000;
     }
 
-    /* Transparent canvas overlay for boxes */
     #overlayCanvas {
       position: absolute;
       top: 0;
@@ -216,7 +214,7 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
-      max-height: 240px;
+      max-height: 220px;
       overflow-y: auto;
     }
     #detectionsList li {
@@ -248,16 +246,21 @@
       border-radius: 10px;
     }
 
-    .info-row {
+    .gadget-tags {
       display: flex;
-      justify-content: space-between;
-      font-size: 0.82rem;
-      padding: 6px 0;
-      border-bottom: 1px solid #21262d;
-      color: #8b949e;
+      flex-wrap: wrap;
+      gap: 6px;
+      max-height: 140px;
+      overflow-y: auto;
     }
-    .info-row:last-child { border-bottom: none; }
-    .info-row span { color: #e6edf3; }
+    .tag {
+      font-size: 0.72rem;
+      background: #21262d;
+      color: #c9d1d9;
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+    }
 
     footer {
       margin-top: auto;
@@ -272,10 +275,10 @@
 
 <header>
   <div class="brand">
-    <h1>🎯 Object Detection</h1>
-    <span class="badge">YOLOv11 ONNX</span>
+    <h1>⚡ Electrical Gadget Detection</h1>
+    <span class="badge">YOLO-World Custom</span>
   </div>
-  <div style="font-size: 0.8rem; color: #8b949e;">Powered by Flask &amp; Render</div>
+  <div style="font-size: 0.8rem; color: #8b949e;">Earbuds · Neckband · Wires · Chargers</div>
 </header>
 
 <div class="container">
@@ -287,7 +290,7 @@
 
     <div class="camera-placeholder" id="placeholder">
       <svg viewBox="0 0 24 24"><path d="M4 4h3l2-2h6l2 2h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm8 3a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6z"/></svg>
-      <div>Camera is off. Click <b>Start Camera</b> to begin detection.</div>
+      <div>Camera is off. Click <b>Start Camera</b> to detect electrical gadgets.</div>
     </div>
 
     <div class="top-badge">
@@ -311,31 +314,46 @@
     </div>
 
     <div class="card">
-      <div class="card-title">Detected Count</div>
+      <div class="card-title">Detected Gadgets</div>
       <div class="count-number" id="countDisplay">0</div>
     </div>
 
     <div class="card">
       <div class="card-title">Live Detections</div>
       <ul id="detectionsList">
-        <li style="color:#6e7681; justify-content:center;">No objects detected</li>
+        <li style="color:#6e7681; justify-content:center;">No gadgets detected</li>
       </ul>
     </div>
 
     <div class="card">
-      <div class="card-title">Model Details</div>
-      <div class="info-row">Model <span>YOLOv11 Nano (ONNX)</span></div>
-      <div class="info-row">Architecture <span>100 Layers, 2.6M params</span></div>
-      <div class="info-row">Runtime <span>ONNX Runtime (CPU)</span></div>
-      <div class="info-row">Target Classes <span>80 COCO Classes</span></div>
+      <div class="card-title">Supported Electrical Items</div>
+      <div class="gadget-tags">
+        <span class="tag">🎧 Earbuds</span>
+        <span class="tag">📿 Neckband</span>
+        <span class="tag">🔌 Earphone Wire</span>
+        <span class="tag">🎧 Earphones</span>
+        <span class="tag">🎧 Headphones</span>
+        <span class="tag">🔌 Mobile Charger</span>
+        <span class="tag">⚡ Charging Cable</span>
+        <span class="tag">🧵 Wire</span>
+        <span class="tag">⌚ Smartwatch</span>
+        <span class="tag">📱 Mobile Phone</span>
+        <span class="tag">💻 Laptop</span>
+        <span class="tag">🔋 Power Bank</span>
+        <span class="tag">🖱️ Mouse</span>
+        <span class="tag">⌨️ Keyboard</span>
+        <span class="tag">🔊 Speaker</span>
+        <span class="tag">🕹️ Remote Control</span>
+        <span class="tag">🔌 Extension Board</span>
+        <span class="tag">🔌 Adapter</span>
+      </div>
     </div>
 
   </div>
 </div>
 
-<footer>Real-time Browser Object Detection · YOLOv11 Nano</footer>
+<footer>Real-time Electrical Gadget Detection · Powered by YOLO-World &amp; ONNX Runtime</footer>
 
-<!-- Hidden processing canvas -->
 <canvas id="procCanvas" style="display:none;"></canvas>
 
 <script>
@@ -359,7 +377,6 @@
   const countDisplay = document.getElementById('countDisplay');
   const detectionsList = document.getElementById('detectionsList');
 
-  // Match overlay size to video whenever metadata is loaded
   webcam.addEventListener('loadedmetadata', resizeOverlay);
   window.addEventListener('resize', resizeOverlay);
 
@@ -374,7 +391,6 @@
     try {
       setStatus('Accessing camera...', '');
 
-      // Request user camera (ideal for mobile and desktop)
       stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 640 },
@@ -393,20 +409,17 @@
 
       liveDot.className = 'dot live';
       liveStatus.textContent = 'Live';
-      setStatus('Camera active — detecting', 'active');
+      setStatus('Detecting electrical gadgets', 'active');
 
       running = true;
       resizeOverlay();
 
-      // Start continuous overlay render loop (runs at 60 FPS)
       requestAnimationFrame(renderLoop);
-
-      // Start detection cycle (throttled ~3 inferences/sec)
       scheduleDetection();
 
     } catch (err) {
       console.error('Camera error:', err);
-      setStatus('Camera access denied or unavailable: ' + err.message, 'error');
+      setStatus('Camera error: ' + err.message, 'error');
     }
   }
 
@@ -432,11 +445,10 @@
     latestDetections = [];
 
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-    detectionsList.innerHTML = '<li style="color:#6e7681; justify-content:center;">No objects detected</li>';
+    detectionsList.innerHTML = '<li style="color:#6e7681; justify-content:center;">No gadgets detected</li>';
     setStatus('Camera stopped', '');
   }
 
-  // 60 FPS visual rendering loop for boxes & labels
   function renderLoop() {
     if (!running) return;
 
@@ -453,12 +465,10 @@
       const h = b.h * vh;
       const color = d.color || '#58a6ff';
 
-      // Draw box
       overlayCtx.lineWidth = 2.5;
       overlayCtx.strokeStyle = color;
       overlayCtx.strokeRect(x, y, w, h);
 
-      // Label background
       const label = `${d.name} ${Math.round(d.confidence)}%`;
       overlayCtx.font = 'bold 12px -apple-system, sans-serif';
       const textWidth = overlayCtx.measureText(label).width;
@@ -467,7 +477,6 @@
       overlayCtx.fillStyle = color;
       overlayCtx.fillRect(x, Math.max(0, y - 20), textWidth + pad * 2, 20);
 
-      // Label text
       overlayCtx.fillStyle = '#ffffff';
       overlayCtx.fillText(label, x + pad, Math.max(14, y - 5));
     }
@@ -475,7 +484,6 @@
     requestAnimationFrame(renderLoop);
   }
 
-  // Background frame sender with concurrency protection
   async function triggerDetection() {
     if (!running || isProcessing) return;
     if (!webcam.videoWidth || !webcam.videoHeight) {
@@ -487,7 +495,6 @@
     const startTime = performance.now();
 
     try {
-      // Capture at efficient 416x416 resolution for fast network & CPU inference
       procCanvas.width = 416;
       procCanvas.height = 416;
       procCtx.drawImage(webcam, 0, 0, 416, 416);
@@ -516,10 +523,8 @@
 
     } catch (err) {
       console.warn('Detection call failed:', err);
-      // Keep running smoothly, don't kill the camera
     } finally {
       isProcessing = false;
-      // Schedule next inference with ~250ms spacing
       scheduleDetection(250);
     }
   }
@@ -532,7 +537,7 @@
 
   function updateDetectionsList(list) {
     if (!list || list.length === 0) {
-      detectionsList.innerHTML = '<li style="color:#6e7681; justify-content:center;">No objects detected</li>';
+      detectionsList.innerHTML = '<li style="color:#6e7681; justify-content:center;">No gadgets detected</li>';
       return;
     }
 

@@ -7,30 +7,27 @@ import os
 
 app = Flask(__name__)
 
-COCO_CLASSES = [
-    'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
-    'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
-    'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
-    'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard',
-    'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
-    'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
-    'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone',
-    'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear',
-    'hair drier', 'toothbrush'
+# Electrical & Electronic Classes
+ELECTRICAL_CLASSES = [
+    'earbuds', 'neckband', 'earphones', 'earphone wire',
+    'headphones', 'mobile charger', 'charging cable', 'wire',
+    'smartwatch', 'mobile phone', 'laptop', 'power bank',
+    'computer mouse', 'keyboard', 'speaker', 'remote control',
+    'extension board', 'adapter'
 ]
 
-# Distinct colors per class for client visualization
+# Generate distinct bright colors for each class
 np.random.seed(42)
 COLORS = [
     f"#{r:02x}{g:02x}{b:02x}"
-    for r, g, b in np.random.randint(50, 255, size=(len(COCO_CLASSES), 3))
+    for r, g, b in np.random.randint(60, 255, size=(len(ELECTRICAL_CLASSES), 3))
 ]
 
-# Load ONNX model once
-MODEL_PATH = os.environ.get("MODEL_PATH", "yolo11n.onnx")
+# Load lightweight custom ONNX model into ONNX Runtime
+MODEL_PATH = os.environ.get("MODEL_PATH", "yolov8s-worldv2-int8.onnx")
 opts = ort.SessionOptions()
-opts.intra_op_num_threads = 1
-opts.inter_op_num_threads = 1
+opts.intra_op_num_threads = 2
+opts.inter_op_num_threads = 2
 opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
 opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
@@ -71,16 +68,16 @@ def detect():
         input_img = np.expand_dims(input_img, axis=0)
 
         # Run ONNX inference
-        preds = session.run([output_name], {input_name: input_img})[0][0]  # (84, 8400)
-        preds = np.transpose(preds)  # (8400, 84)
+        preds = session.run([output_name], {input_name: input_img})[0][0]  # (22, 8400)
+        preds = np.transpose(preds)  # (8400, 22)
 
         boxes_data = preds[:, :4]
         classes_scores = preds[:, 4:]
         class_ids = np.argmax(classes_scores, axis=1)
         confidences = np.max(classes_scores, axis=1)
 
-        # Filter by threshold
-        mask = confidences > 0.35
+        # Confidence threshold (0.28 for sensitive gadget detection like small earbuds)
+        mask = confidences > 0.28
         boxes_data = boxes_data[mask]
         confidences = confidences[mask]
         class_ids = class_ids[mask]
@@ -88,38 +85,37 @@ def detect():
         boxes = []
         for box in boxes_data:
             cx, cy, bw, bh = box
-            # Return normalized coordinates (0..1) so client can scale to any video resolution
+            # Return normalized coordinates (0..1)
             x = (cx - bw / 2) / 640.0
             y = (cy - bh / 2) / 640.0
             w = bw / 640.0
             h = bh / 640.0
             boxes.append([x, y, w, h])
 
-        # Apply Non-Maximum Suppression
         indices = []
         if len(boxes) > 0:
-            # cv2.dnn.NMSBoxes expects pixel coords
             pixel_boxes = [[int(b[0]*640), int(b[1]*640), int(b[2]*640), int(b[3]*640)] for b in boxes]
-            indices = cv2.dnn.NMSBoxes(pixel_boxes, confidences.tolist(), 0.35, 0.45)
+            indices = cv2.dnn.NMSBoxes(pixel_boxes, confidences.tolist(), 0.28, 0.45)
 
         detections = []
         if len(indices) > 0:
             for i in indices.flatten():
                 cid = int(class_ids[i])
-                conf = float(confidences[i])
-                bx, by, bw, bh = boxes[i]
+                if cid < len(ELECTRICAL_CLASSES):
+                    conf = float(confidences[i])
+                    bx, by, bw, bh = boxes[i]
 
-                detections.append({
-                    "name": COCO_CLASSES[cid],
-                    "confidence": round(conf * 100, 1),
-                    "color": COLORS[cid],
-                    "box": {
-                        "x": max(0.0, float(bx)),
-                        "y": max(0.0, float(by)),
-                        "w": min(1.0, float(bw)),
-                        "h": min(1.0, float(bh))
-                    }
-                })
+                    detections.append({
+                        "name": ELECTRICAL_CLASSES[cid],
+                        "confidence": round(conf * 100, 1),
+                        "color": COLORS[cid],
+                        "box": {
+                            "x": max(0.0, float(bx)),
+                            "y": max(0.0, float(by)),
+                            "w": min(1.0, float(bw)),
+                            "h": min(1.0, float(bh))
+                        }
+                    })
 
         return jsonify({
             "detections": detections,
