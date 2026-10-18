@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Electrical Gadget Detection — YOLO-World</title>
+  <title>Electrical Gadget Detection — YOLO-World (Voice Enabled)</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -188,6 +188,18 @@
     }
     #stopBtn:hover { background: #f85149; }
 
+    .btn-voice {
+      background: #1f6feb;
+      color: #fff;
+      font-size: 0.85rem;
+      padding: 9px;
+      margin-top: 4px;
+    }
+    .btn-voice.muted {
+      background: #30363d;
+      color: #8b949e;
+    }
+
     #statusMessage {
       font-size: 0.82rem;
       text-align: center;
@@ -214,7 +226,7 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
-      max-height: 220px;
+      max-height: 200px;
       overflow-y: auto;
     }
     #detectionsList li {
@@ -276,7 +288,7 @@
 <header>
   <div class="brand">
     <h1>⚡ Electrical Gadget Detection</h1>
-    <span class="badge">YOLO-World Custom</span>
+    <span class="badge">Voice &amp; Audio Enabled</span>
   </div>
   <div style="font-size: 0.8rem; color: #8b949e;">Earbuds · Neckband · Wires · Chargers</div>
 </header>
@@ -305,10 +317,11 @@
   <div class="side-panel">
 
     <div class="card">
-      <div class="card-title">Camera Controls</div>
+      <div class="card-title">Camera &amp; Voice Controls</div>
       <div style="display:flex; flex-direction:column; gap:10px;">
         <button class="btn" id="startBtn" onclick="startDetection()">▶ Start Camera</button>
         <button class="btn" id="stopBtn" onclick="stopDetection()">⏹ Stop Camera</button>
+        <button class="btn btn-voice" id="voiceBtn" onclick="toggleVoice()">🔊 Speaker Voice: ON</button>
         <div id="statusMessage">Click Start Camera</div>
       </div>
     </div>
@@ -352,7 +365,7 @@
   </div>
 </div>
 
-<footer>Real-time Electrical Gadget Detection · Powered by YOLO-World &amp; ONNX Runtime</footer>
+<footer>Real-time Electrical Gadget Detection · Auto Voice Speaker Announcement</footer>
 
 <canvas id="procCanvas" style="display:none;"></canvas>
 
@@ -362,6 +375,11 @@
   let isProcessing = false;
   let detectTimer = null;
   let latestDetections = [];
+
+  // Voice speech synthesis
+  let voiceEnabled = true;
+  let lastSpokenTime = {};
+  const synth = window.speechSynthesis;
 
   const webcam = document.getElementById('webcam');
   const overlayCanvas = document.getElementById('overlayCanvas');
@@ -376,6 +394,7 @@
   const statusMessage = document.getElementById('statusMessage');
   const countDisplay = document.getElementById('countDisplay');
   const detectionsList = document.getElementById('detectionsList');
+  const voiceBtn = document.getElementById('voiceBtn');
 
   webcam.addEventListener('loadedmetadata', resizeOverlay);
   window.addEventListener('resize', resizeOverlay);
@@ -384,6 +403,47 @@
     if (webcam.videoWidth && webcam.videoHeight) {
       overlayCanvas.width = webcam.clientWidth;
       overlayCanvas.height = webcam.clientHeight;
+    }
+  }
+
+  function toggleVoice() {
+    voiceEnabled = !voiceEnabled;
+    if (voiceEnabled) {
+      voiceBtn.textContent = '🔊 Speaker Voice: ON';
+      voiceBtn.className = 'btn btn-voice';
+      speak("Voice enabled");
+    } else {
+      voiceBtn.textContent = '🔇 Speaker Voice: OFF';
+      voiceBtn.className = 'btn btn-voice muted';
+      if (synth) synth.cancel();
+    }
+  }
+
+  function speak(text) {
+    if (!voiceEnabled || !synth) return;
+    try {
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.rate = 1.05;
+      utter.pitch = 1.0;
+      synth.speak(utter);
+    } catch (e) {
+      console.warn("Speech error:", e);
+    }
+  }
+
+  // Announce detected objects without repeating too frequently
+  function announceDetections(detections) {
+    if (!voiceEnabled || !detections || detections.length === 0) return;
+
+    const now = Date.now();
+    for (const d of detections) {
+      const name = d.name;
+      // Do not repeat the same object within 3.5 seconds
+      if (!lastSpokenTime[name] || (now - lastSpokenTime[name] > 3500)) {
+        lastSpokenTime[name] = now;
+        speak(name);
+        break; // Speak one object at a time so speech doesn't overlap
+      }
     }
   }
 
@@ -409,10 +469,12 @@
 
       liveDot.className = 'dot live';
       liveStatus.textContent = 'Live';
-      setStatus('Detecting electrical gadgets', 'active');
+      setStatus('Detecting & Announcing', 'active');
 
       running = true;
       resizeOverlay();
+
+      speak("Camera started. Detection active.");
 
       requestAnimationFrame(renderLoop);
       scheduleDetection();
@@ -427,6 +489,7 @@
     running = false;
     isProcessing = false;
     clearTimeout(detectTimer);
+    if (synth) synth.cancel();
 
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
@@ -443,12 +506,14 @@
     latencyBadge.textContent = '-- ms';
     countDisplay.textContent = '0';
     latestDetections = [];
+    lastSpokenTime = {};
 
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     detectionsList.innerHTML = '<li style="color:#6e7681; justify-content:center;">No gadgets detected</li>';
     setStatus('Camera stopped', '');
   }
 
+  // Render loop: draws sleek boxes and prominent text badges DIRECTLY ABOVE each box
   function renderLoop() {
     if (!running) return;
 
@@ -465,20 +530,30 @@
       const h = b.h * vh;
       const color = d.color || '#58a6ff';
 
-      overlayCtx.lineWidth = 2.5;
+      // 1. Draw glowing bounding box
+      overlayCtx.lineWidth = 3;
       overlayCtx.strokeStyle = color;
+      overlayCtx.shadowColor = color;
+      overlayCtx.shadowBlur = 8;
       overlayCtx.strokeRect(x, y, w, h);
+      overlayCtx.shadowBlur = 0; // reset blur
 
-      const label = `${d.name} ${Math.round(d.confidence)}%`;
-      overlayCtx.font = 'bold 12px -apple-system, sans-serif';
-      const textWidth = overlayCtx.measureText(label).width;
-      const pad = 4;
+      // 2. Draw prominent label badge DIRECTLY ABOVE the bounding box
+      const label = `${d.name.toUpperCase()}  ${Math.round(d.confidence)}%`;
+      overlayCtx.font = 'bold 13px -apple-system, sans-serif';
+      const textMetrics = overlayCtx.measureText(label);
+      const textWidth = textMetrics.width;
+      const badgeHeight = 24;
+      const badgePad = 8;
+      const badgeY = Math.max(0, y - badgeHeight - 2);
 
+      // Badge background with rounded look
       overlayCtx.fillStyle = color;
-      overlayCtx.fillRect(x, Math.max(0, y - 20), textWidth + pad * 2, 20);
+      overlayCtx.fillRect(x, badgeY, textWidth + badgePad * 2, badgeHeight);
 
+      // Text inside badge
       overlayCtx.fillStyle = '#ffffff';
-      overlayCtx.fillText(label, x + pad, Math.max(14, y - 5));
+      overlayCtx.fillText(label, x + badgePad, badgeY + 17);
     }
 
     requestAnimationFrame(renderLoop);
@@ -519,6 +594,9 @@
         latestDetections = data.detections;
         countDisplay.textContent = data.count || 0;
         updateDetectionsList(data.detections);
+
+        // Announce detected items out loud via speaker!
+        announceDetections(data.detections);
       }
 
     } catch (err) {
